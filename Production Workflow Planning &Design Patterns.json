@@ -1,0 +1,133 @@
+{
+  "name": "Production Workflow Planning &Design Patterns",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "v1/transactions",
+        "options": {
+          "responseCode": {
+            "values": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -192,
+        -16
+      ],
+      "id": "0b9cb48d-1a86-4a25-b01c-b49b61d157d6",
+      "name": "Webhook",
+      "webhookId": "62275f50-031a-4715-8856-0b3e9275562c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const transactionId = item.json.body?.transactionId;\n\n  if (!transactionId) {\n    throw new Error(\"Transaction ID is missing\");\n  }\n\n  return {\n    json: {\n      ...item.json,\n      transactionId: transactionId\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        -16
+      ],
+      "id": "18dc5cef-32d1-447d-b95f-7a48be0fe32f",
+      "name": "Idempotency Verification"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const data = item.json.body ?? item.json;\n\n  if (\n    !data.customerEmail ||\n    !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(data.customerEmail)\n  ) {\n    throw new Error(\"Invalid or missing customer email\");\n  }\n\n  if (\n    typeof data.amount !== \"number\" ||\n    !Number.isFinite(data.amount) ||\n    data.amount <= 0\n  ) {\n    throw new Error(\"Amount must be greater than 0\");\n  }\n\n  return {\n    json: {\n      ...item.json,\n      payload: {\n        transactionId: data.transactionId,\n        customerEmail: data.customerEmail,\n        amount: data.amount,\n        status: data.status\n      }\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        -16
+      ],
+      "id": "98b43f38-5533-4e71-8085-886f3eb59203",
+      "name": "Validate Inputs"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://invalid.example.invalid/test",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        -16
+      ],
+      "id": "94d5c448-3dcb-4644-a906-37e542b79f83",
+      "name": "POST CreateBillingCharge",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Idempotency Verification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idempotency Verification": {
+      "main": [
+        [
+          {
+            "node": "Validate Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Inputs": {
+      "main": [
+        [
+          {
+            "node": "POST CreateBillingCharge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "2YNCLsmWBfKMZNPT",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "03d3be1c-25cf-43c8-a0d4-c05f0d8a4d3f",
+  "meta": {
+    "instanceId": "a03c7678428ef19ededbf912f16f7d5798ec7b9ab4c17f2a2def6a9e791e7215"
+  },
+  "nodeGroups": [],
+  "id": "K4fxtKZOpaypZon3",
+  "tags": []
+}

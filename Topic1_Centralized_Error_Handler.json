@@ -1,0 +1,92 @@
+{
+  "name": "Topic1_Centralized_Error_Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        16
+      ],
+      "id": "fd7bda37-8aef-4451-a75b-7ddbfd60b114",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const data = item.json;\n\n  return {\n    json: {\n      workflowName: data.workflow?.name || \"Unknown\",\n      executionId: String(data.execution?.id || \"N/A\"),\n      failedNode: data.execution?.lastNodeExecuted || \"Unknown\",\n      errorMessage:\n        data.execution?.error?.message ||\n        data.trigger?.error?.message ||\n        \"Unknown error\",\n      failedAt: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        16
+      ],
+      "id": "f6ce5af4-9185-4a98-9874-48406ed8a3d1",
+      "name": "Construct Error Alert"
+    },
+    {
+      "parameters": {
+        "fromEmail": "shaiktakreem17@gmail.com",
+        "toEmail": "deba.s@tayanasolutions.com",
+        "subject": "n8n Production Workflow Failed",
+        "emailFormat": "text",
+        "text": "=PRODUCTION WORKFLOW ERROR ALERT\n\nWorkflow: {{ $json.workflowName }}\n\nExecution ID: {{ $json.executionId }}\n\nFailed Node: {{ $json.failedNode }}\n\nError: {{ $json.errorMessage }}\n\nTime: {{ $json.failedAt }}\n\nPlease investigate the failed execution.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        352,
+        16
+      ],
+      "id": "c7274c41-b85d-4365-b83a-fa2af718e05f",
+      "name": "Send an Email",
+      "webhookId": "a6451cc3-deac-4184-a2a3-73ed0a2dedd8",
+      "credentials": {
+        "smtp": {
+          "id": "cvZaxhd51mIlCQcV",
+          "name": "SMTP account 6"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Construct Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construct Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "3083a673-348d-42ad-b943-8b8bb48b1635",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a03c7678428ef19ededbf912f16f7d5798ec7b9ab4c17f2a2def6a9e791e7215"
+  },
+  "nodeGroups": [],
+  "id": "2YNCLsmWBfKMZNPT",
+  "tags": []
+}
