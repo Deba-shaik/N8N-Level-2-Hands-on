@@ -1,0 +1,330 @@
+{
+  "name": "Topic 2 - Multi-Modal Data Transformation & PDF Extraction",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -832,
+        -32
+      ],
+      "id": "81bd1991-424b-4af4-8399-a2c6a61aeef3",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst invoiceText = [\n  \"INVOICE NUMBER: INV-PDF-2026-904\",\n  \"DATE: 2026-10-14\",\n  \"VENDOR: Acme Industrial Automation Corp\",\n  \"ITEM: Industrial Sensor Pack x3 @ 150.00 USD = 450.00 USD\",\n  \"ITEM: DIN Rail Power Supply x2 @ 85.50 USD = 171.00 USD\",\n  \"SUBTOTAL: 621.00 USD\",\n  \"TAX: 49.68 USD\",\n  \"TOTAL: 670.68 USD\"\n].join(\"\\n\");\n\n// Create a valid one-page PDF with embedded text.\nconst escapePDF = s =>\n  s.replace(/\\\\/g, \"\\\\\\\\\")\n   .replace(/\\(/g, \"\\\\(\")\n   .replace(/\\)/g, \"\\\\)\");\n\nconst lines = invoiceText.split(\"\\n\");\nconst commands = [\"BT\", \"/F1 11 Tf\", \"50 740 Td\"];\n\nlines.forEach((line, i) => {\n  if (i > 0) commands.push(\"0 -22 Td\");\n  commands.push(`(${escapePDF(line)}) Tj`);\n});\n\ncommands.push(\"ET\");\nconst stream = commands.join(\"\\n\") + \"\\n\";\n\nconst objects = [\n  \"<< /Type /Catalog /Pages 2 0 R >>\",\n  \"<< /Type /Pages /Kids [3 0 R] /Count 1 >>\",\n  \"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\",\n  `<< /Length ${Buffer.byteLength(stream)} >>\\nstream\\n${stream}endstream`,\n  \"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\"\n];\n\nlet pdf = \"%PDF-1.4\\n\";\nconst offsets = [0];\n\nobjects.forEach((obj, i) => {\n  offsets.push(Buffer.byteLength(pdf));\n  pdf += `${i + 1} 0 obj\\n${obj}\\nendobj\\n`;\n});\n\nconst xrefOffset = Buffer.byteLength(pdf);\npdf += `xref\\n0 ${objects.length + 1}\\n`;\npdf += \"0000000000 65535 f \\n\";\n\nfor (let i = 1; i < offsets.length; i++) {\n  pdf += String(offsets[i]).padStart(10, \"0\") + \" 00000 n \\n\";\n}\n\npdf += `trailer\\n<< /Size ${objects.length + 1} /Root 1 0 R >>\\n`;\npdf += `startxref\\n${xrefOffset}\\n%%EOF\\n`;\n\nconst binaryData = await this.helpers.prepareBinaryData(\n  Buffer.from(pdf, \"utf8\"),\n  \"vendor_invoice_INV-904.pdf\",\n  \"application/pdf\"\n);\n\nreturn {\n  json: {\n    fileName: \"vendor_invoice_INV-904.pdf\",\n    sourceChannel: \"Supplier_Portal_Upload\",\n    fileType: \"application/pdf\"\n  },\n  binary: {\n    data: binaryData\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -528,
+        -16
+      ],
+      "id": "e9bd9f20-faa7-453a-a633-f4a52e45fd08",
+      "name": "Code_SimulatePDFInvoiceBinary"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -320,
+        -16
+      ],
+      "id": "33495ee7-798d-4d9f-95ee-91f2ba622f46",
+      "name": "Extract PDF Text"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst rawText = $input.item.json.text || \"\";\n\nconst getValue = (regex, fallback = \"\") =>\n  rawText.match(regex)?.[1]?.trim() || fallback;\n\nconst invoiceNumber = getValue(\n  /INVOICE NUMBER:\\s*([A-Z0-9-]+)/i,\n  \"UNKNOWN_INV\"\n);\n\nconst orderDate = getValue(\n  /DATE:\\s*(\\d{4}-\\d{2}-\\d{2})/i\n);\n\nconst vendor = getValue(\n  /VENDOR:\\s*([^\\r\\n]+)/i,\n  \"Unknown Vendor\"\n);\n\nconst getAmount = label => {\n  const match = rawText.match(\n    new RegExp(`^${label}:\\\\s*([\\\\d.]+)`, \"im\")\n  );\n  return match ? Number(match[1]) : 0;\n};\n\nconst items = [];\n\nconst itemRegex =\n  /^ITEM:\\s*(.*?)\\s+x(\\d+)\\s+@\\s+([\\d.]+)\\s+USD\\s*=\\s*([\\d.]+)\\s+USD/gim;\n\nlet match;\n\nwhile ((match = itemRegex.exec(rawText)) !== null) {\n  items.push({\n    sku: \"PDF-EXTRACTED-SKU\",\n    description: match[1].trim(),\n    quantity: Number(match[2]),\n    unitPrice: Number(match[3]),\n    total: Number(match[4])\n  });\n}\n\nreturn {\n  json: {\n    sourceType: \"PDF_INVOICE\",\n    orderId: invoiceNumber,\n    orderDate: orderDate,\n    customer: {\n      fullName: vendor,\n      email: \"billing@acmeindustrial.com\",\n      phone: \"+1-800-555-0199\"\n    },\n    items: items,\n    financials: {\n      subtotal: getAmount(\"SUBTOTAL\"),\n      tax: getAmount(\"TAX\"),\n      total: getAmount(\"TOTAL\")\n    }\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        -16
+      ],
+      "id": "0b516f60-f6c1-459e-b6f5-fe3e54f6bb3f",
+      "name": "Transform ParsePDFInvoice"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nreturn [\n  {\n    json: {\n      orderId: \"LEG-8841\",\n      orderDate: \"10/14/2026\",\n      sourceTimezone: \"America/New_York\",\n      customer: {\n        rawName: \" jOHn dOE-sMITH \",\n        email: \"JOHN.DOE@GMAIL.COM \",\n        phone: \"(555) 019-2834\"\n      },\n      items: [\n        {\n          sku: \"item-01\",\n          description: \"Mechanical Keyboard\",\n          unitPrice: \" $129.99 \",\n          quantity: 2\n        },\n        {\n          sku: \"item-02\",\n          description: \"Wrist Rest\",\n          unitPrice: \"24.50\",\n          quantity: 1\n        }\n      ],\n      discountPercent: 10\n    }\n  },\n  {\n    json: {\n      orderId: \"LEG-8842\",\n      orderDate: \"2026-10-15T08:45:00-07:00\",\n      sourceTimezone: \"America/Los_Angeles\",\n      customer: {\n        rawName: \"ALICE WONDERLAND\",\n        email: \"alice@adventures.co.uk\",\n        phone: \"+44 20 7946 0919\"\n      },\n      items: [\n        {\n          sku: \"item-09\",\n          description: \"UltraWide Monitor 34-inch\",\n          unitPrice: \"499.00 USD\",\n          quantity: 1\n        },\n        {\n          sku: \"item-12\",\n          description: \"Monitor Arm Mount\",\n          unitPrice: \"$85.00\",\n          quantity: 2\n        }\n      ],\n      discountPercent: 15\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        -288
+      ],
+      "id": "61448bf2-e009-4a4e-ae15-4a35157f93da",
+      "name": "Code GenerateLegacyOrders"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst item = $input.item.json;\n\nconst rawDate = item.orderDate;\nconst tz = item.sourceTimezone || 'UTC';\n\nlet parsedDate;\n\nif (rawDate.includes('/')) {\n  parsedDate = DateTime.fromFormat(\n    rawDate.trim(),\n    'MM/dd/yyyy',\n    { zone: tz }\n  );\n} else {\n  parsedDate = DateTime.fromISO(\n    rawDate.trim(),\n    { zone: tz }\n  );\n}\n\nif (!parsedDate.isValid) {\n  throw new Error(\n    `Invalid order date: ${rawDate}`\n  );\n}\n\nreturn {\n  json: {\n    ...item,\n    normalizedDateUtc: parsedDate.toUTC().toISO(),\n    displayDate: parsedDate.toFormat(\n      'yyyy-MM-dd HH:mm:ss'\n    )\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        -288
+      ],
+      "id": "51a4aaad-2176-400b-b01c-d6cafb6c6135",
+      "name": "Code NormalizeDates"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst item = $input.item.json;\n\nconst TAX_RATE = 0.085;\nconst discountPct = Number(item.discountPercent || 0);\n\nconst cleanedItems = (item.items || []).map(line => {\n  const cleanPrice = Number(\n    String(line.unitPrice).replace(/[^0-9.-]+/g, '')\n  ) || 0;\n\n  const qty = Number(line.quantity) || 1;\n\n  return {\n    sku: String(line.sku).toUpperCase().trim(),\n    description: String(line.description).trim(),\n    quantity: qty,\n    unitPrice: cleanPrice,\n    lineTotal: Number((cleanPrice * qty).toFixed(2))\n  };\n});\n\nconst subtotal = cleanedItems.reduce(\n  (sum, line) => sum + line.lineTotal,\n  0\n);\n\nconst discountAmount = Number(\n  (subtotal * discountPct / 100).toFixed(2)\n);\n\nconst taxableAmount = subtotal - discountAmount;\n\nconst taxAmount = Number(\n  (taxableAmount * TAX_RATE).toFixed(2)\n);\n\nconst grandTotal = Number(\n  (taxableAmount + taxAmount).toFixed(2)\n);\n\nconst cleanedName = String(\n  item.customer?.rawName || \"\"\n)\n  .trim()\n  .toLowerCase()\n  .replace(/\\b\\w/g, c => c.toUpperCase());\n\nreturn {\n  json: {\n    sourceType: \"LEGACY_JSON\",\n    orderId: item.orderId,\n    orderDate: item.normalizedDateUtc,\n    customer: {\n      fullName: cleanedName,\n      email: String(item.customer?.email || \"\")\n        .trim()\n        .toLowerCase(),\n      phone: item.customer?.phone || \"\"\n    },\n    items: cleanedItems,\n    financials: {\n      subtotal: Number(subtotal.toFixed(2)),\n      discount: discountAmount,\n      tax: taxAmount,\n      total: grandTotal\n    }\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        -288
+      ],
+      "id": "5889aa53-efe0-4aad-9d26-8fb8cf87856c",
+      "name": "TransformProcessLineItems"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        32,
+        -240
+      ],
+      "id": "fd1a0633-3ea5-4aad-9925-fe604432ea6c",
+      "name": "Merge PDF and JSON"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b9b581a3-db8d-4942-9ab9-f3c0e19b34fc",
+              "name": "transactionId",
+              "value": "={{ $json.orderId }}",
+              "type": "string"
+            },
+            {
+              "id": "917962d9-fdc7-4f80-976a-baf41314c310",
+              "name": "sourceSystem",
+              "value": "={{ $json.sourceType }}",
+              "type": "string"
+            },
+            {
+              "id": "29dbd558-eff6-40a6-8778-8588702bb420",
+              "name": "transactionDate",
+              "value": "={{ $json.orderDate }}",
+              "type": "string"
+            },
+            {
+              "id": "912ed96c-7831-4f68-9b4e-590265086226",
+              "name": "accountName",
+              "value": "={{ $json.customer.fullName }}",
+              "type": "string"
+            },
+            {
+              "id": "fa7d470a-bb0c-4690-b424-f8ecafff8e81",
+              "name": "email",
+              "value": "={{ $json.customer.email }}",
+              "type": "string"
+            },
+            {
+              "id": "7368ddc9-eac2-4db7-951e-72625552f02a",
+              "name": "lineItemCount",
+              "value": "={{ $json.items.length }}",
+              "type": "string"
+            },
+            {
+              "id": "81b50687-ed43-4b44-92b1-89c6b55110f0",
+              "name": "amountPayable",
+              "value": "={{ $json.financials.total }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        272,
+        -240
+      ],
+      "id": "1c2608da-170b-419c-9c95-5e63edd06cb9",
+      "name": "EditFieldsStandardizeERP"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://httpbin.org/post",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        -240
+      ],
+      "id": "a552ba36-d3a0-4728-a7e2-ec67c0fc8c6c",
+      "name": "HTTP PostCleanOrderToERP"
+    },
+    {
+      "parameters": {
+        "jsCode": "const responses = $input.all();\n\nconst orders = responses.map(item => {\n  const data = item.json.json ?? item.json;\n\n  return {\n    transactionId: data.transactionId,\n    sourceSystem: data.sourceSystem,\n    amountPayable: Number(data.amountPayable || 0),\n    status: \"POST_SUCCESS\"\n  };\n});\n\nconst totalAmount = orders.reduce(\n  (sum, order) => sum + order.amountPayable,\n  0\n);\n\nreturn [\n  {\n    json: {\n      auditStatus: \"COMPLETED\",\n      processedAt: new Date().toISOString(),\n      totalOrders: orders.length,\n      totalAmount: Number(totalAmount.toFixed(2)),\n      orders: orders\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        -240
+      ],
+      "id": "e4d04380-db05-4e29-ab56-44c2a062a9cf",
+      "name": "Code AuditSummary"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Code_SimulatePDFInvoiceBinary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code GenerateLegacyOrders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code_SimulatePDFInvoiceBinary": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Transform ParsePDFInvoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform ParsePDFInvoice": {
+      "main": [
+        [
+          {
+            "node": "Merge PDF and JSON",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Code GenerateLegacyOrders": {
+      "main": [
+        [
+          {
+            "node": "Code NormalizeDates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code NormalizeDates": {
+      "main": [
+        [
+          {
+            "node": "TransformProcessLineItems",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TransformProcessLineItems": {
+      "main": [
+        [
+          {
+            "node": "Merge PDF and JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge PDF and JSON": {
+      "main": [
+        [
+          {
+            "node": "EditFieldsStandardizeERP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EditFieldsStandardizeERP": {
+      "main": [
+        [
+          {
+            "node": "HTTP PostCleanOrderToERP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP PostCleanOrderToERP": {
+      "main": [
+        [
+          {
+            "node": "Code AuditSummary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "5cbdcc96-9dbe-492b-b116-891ab6ca1257",
+  "meta": {
+    "instanceId": "a03c7678428ef19ededbf912f16f7d5798ec7b9ab4c17f2a2def6a9e791e7215"
+  },
+  "nodeGroups": [],
+  "id": "Y67VQdFfzSXk4jNy",
+  "tags": []
+}
