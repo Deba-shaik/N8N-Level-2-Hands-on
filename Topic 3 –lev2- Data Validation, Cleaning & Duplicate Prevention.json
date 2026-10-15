@@ -1,0 +1,316 @@
+{
+  "name": "Topic 3 –lev2- Data Validation, Cleaning & Duplicate Prevention",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -960,
+        0
+      ],
+      "id": "ce32d23b-0c1f-44e4-8c26-fcbf17432451",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nreturn [\n  {\n    json: {\n      leadId: \"LD-001\",\n      name: \" Sarah Connor \",\n      email: \"SARAH.CONNOR@SKYNET-RESIST.ORG \",\n      phone: \"(555) 234-5678\",\n      company: \"Tech Resistance\",\n      notes: \"Valid lead with US phone formatting\"\n    }\n  },\n  {\n    json: {\n      leadId: \"LD-002\",\n      name: \"Bad Email User\",\n      email: \"invalid-email@@nowhere\",\n      phone: \"+1 555 987 6543\",\n      company: \"Test Corp\",\n      notes: \"Malformed email\"\n    }\n  },\n  {\n    json: {\n      leadId: \"LD-003\",\n      name: \"Spam Bot\",\n      email: \"freebie@mailinator.com\",\n      phone: \"555-111-2222\",\n      company: \"Spam Co\",\n      notes: \"Disposable domain\"\n    }\n  },\n  {\n    json: {\n      leadId: \"LD-004\",\n      name: \"Sarah Connor (Duplicate Submission)\",\n      email: \"sarah.connor@skynet-resist.org\",\n      phone: \"+1 (555) 234-5678\",\n      company: \"Tech Resistance Inc\",\n      notes: \"Duplicate of LD-001\"\n    }\n  },\n  {\n    json: {\n      leadId: \"LD-005\",\n      name: \"Marcus Wright\",\n      email: \"marcus@cyberdyne.com\",\n      phone: \"+44 20 7946 0919\",\n      company: \"Cyberdyne Systems\",\n      notes: \"Valid international UK lead\"\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        0
+      ],
+      "id": "4ad86045-8ac1-47ad-a44b-7360a3bdc6f6",
+      "name": "CodeGenerateRawLeads"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst item = $input.item.json;\n\n// 1. Clean and lowercase email\nconst cleanEmail = String(item.email || '')\n  .trim()\n  .toLowerCase();\n\n// 2. Clean phone number\nlet rawPhone = String(item.phone || '').trim();\n\nlet cleanPhone = rawPhone.replace(/[^\\d+]/g, '');\n\n// Convert US phone numbers to E.164 format\nif (/^\\d{10}$/.test(cleanPhone)) {\n  cleanPhone = '+1' + cleanPhone;\n} else if (/^1\\d{10}$/.test(cleanPhone)) {\n  cleanPhone = '+' + cleanPhone;\n}\n\n// 3. Clean name and company\nconst cleanName = String(item.name || '').trim();\n\nconst cleanCompany = String(item.company || '').trim();\n\n// 4. Return cleaned lead\nreturn {\n  json: {\n    leadId: item.leadId,\n    name: cleanName,\n    email: cleanEmail,\n    phone: cleanPhone,\n    company: cleanCompany,\n    rawNotes: item.notes\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        0
+      ],
+      "id": "5f72dff9-a770-4a78-a29b-b80073a669a1",
+      "name": "CodeSanitizeAndFormat"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst lead = $input.item.json;\n\nconst errors = [];\n\n// Validate customer name\nif (!lead.name || lead.name.trim().length < 2) {\n  errors.push(\"Invalid customer name\");\n}\n\n// Validate email format\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n\nif (!emailRegex.test(lead.email || \"\")) {\n  errors.push(\"Invalid email format\");\n}\n\n// Check disposable email domains\nconst blockedDomains = [\n  \"mailinator.com\",\n  \"tempmail.com\",\n  \"10minutemail.com\"\n];\n\nconst emailDomain = String(lead.email || \"\")\n  .split(\"@\")[1] || \"\";\n\nif (blockedDomains.includes(emailDomain)) {\n  errors.push(\"Disposable email domain\");\n}\n\n// Validate international phone number\nconst phoneRegex = /^\\+[1-9]\\d{7,14}$/;\n\nif (!phoneRegex.test(lead.phone || \"\")) {\n  errors.push(\"Invalid phone number\");\n}\n\n// Return validation result\nreturn {\n  json: {\n    ...lead,\n    isQualityLead: errors.length === 0,\n    validationStatus:\n      errors.length === 0 ? \"VALID\" : \"INVALID\",\n    validationErrors: errors\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        0
+      ],
+      "id": "eb9332b8-f5a7-49a3-bccd-7394c5c6fcd4",
+      "name": "CodeValidateLeadQuality"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e03af42b-7508-4728-876f-d032e62367c7",
+              "leftValue": "={{ $json.isQualityLead }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -224,
+        0
+      ],
+      "id": "49c16d2f-2a8e-4e6e-8da3-1977d9a55d68",
+      "name": "IF IsQualityLead"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a77b7dfa-7e1a-48da-b35c-6612b7c99479",
+              "name": "quarantineStatus",
+              "value": "REJECTED INVALID LEAD",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        32,
+        160
+      ],
+      "id": "77ec1cd3-e709-4b99-bec6-72388c68a437",
+      "name": "Log QuarantineInvalid"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst leads = $input.all();\nconst seenEmails = new Set();\n\nreturn leads.map((item) => {\n  const lead = item.json;\n\n  const email = String(lead.email || \"\")\n    .trim()\n    .toLowerCase();\n\n  const isDuplicate = seenEmails.has(email);\n\n  if (!isDuplicate) {\n    seenEmails.add(email);\n  }\n\n  return {\n    json: {\n      ...lead,\n      isUniqueLead: !isDuplicate,\n      duplicateStatus: isDuplicate\n        ? \"DUPLICATE\"\n        : \"UNIQUE\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        -96
+      ],
+      "id": "ae3604b1-8f6a-48fb-b6e0-d578b3231e03",
+      "name": "Code DeduplicateLeads"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "382d4e9a-7572-4939-9012-b9b347022b40",
+              "leftValue": "={{ $json.isUniqueLead }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        336,
+        -64
+      ],
+      "id": "0129c7c0-a72c-46bc-ae30-925e73a66cbb",
+      "name": "IFIsUniqueLead"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2b241333-025b-4c4b-ae7a-ac95d0486b7a",
+              "name": "leadStatus",
+              "value": "ACCEPTED UNIQUE LEAD",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        656,
+        -160
+      ],
+      "id": "d4fba2bf-88e3-4dc1-9803-f23336078d55",
+      "name": "Mark Unique Leads"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "180c501b-340f-49ac-8a0e-ebe1c4a3cc05",
+              "name": "leadStatus",
+              "value": "REJECTED DUPLICATE LEAD",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        656,
+        48
+      ],
+      "id": "9c2fb5b6-b833-4a8b-85b2-979946207273",
+      "name": "Log Duplicate Leads"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "CodeGenerateRawLeads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CodeGenerateRawLeads": {
+      "main": [
+        [
+          {
+            "node": "CodeSanitizeAndFormat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CodeSanitizeAndFormat": {
+      "main": [
+        [
+          {
+            "node": "CodeValidateLeadQuality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CodeValidateLeadQuality": {
+      "main": [
+        [
+          {
+            "node": "IF IsQualityLead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF IsQualityLead": {
+      "main": [
+        [
+          {
+            "node": "Code DeduplicateLeads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log QuarantineInvalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code DeduplicateLeads": {
+      "main": [
+        [
+          {
+            "node": "IFIsUniqueLead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IFIsUniqueLead": {
+      "main": [
+        [
+          {
+            "node": "Mark Unique Leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Duplicate Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "3225cc7b-7bbb-4d12-be78-6652c0ca994e",
+  "meta": {
+    "instanceId": "a03c7678428ef19ededbf912f16f7d5798ec7b9ab4c17f2a2def6a9e791e7215"
+  },
+  "nodeGroups": [],
+  "id": "aM6tK254P07fEiOe",
+  "tags": []
+}
